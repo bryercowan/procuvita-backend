@@ -1,16 +1,21 @@
-use actix_web::{web, App, HttpServer, Responder};
+pub mod actors;
+pub mod routes;
+use actix::Actor;
+use actix_web::{web, App, HttpServer};
+use actors::manager::Manager;
+use routes::configure_routes;
 
-mod actors;
-mod routes;
-
-async fn index() -> impl Responder {
-    "Hello, Rust backend!"
-}
-
-#[tokio::main]
+#[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    HttpServer::new(|| App::new().route("/", web::get().to(index)))
-        .bind("127.0.0.1:8080")?
-        .run()
-        .await
+    let manager = Manager::new().start();
+    let manager_data = web::Data::new(manager);
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(manager_data.clone())
+            .configure(configure_routes)
+    })
+    .bind("127.0.0.1:8080")?
+    .run()
+    .await
 }

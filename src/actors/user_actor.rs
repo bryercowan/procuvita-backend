@@ -4,7 +4,6 @@ use reqwest::Client;
 use serde_json::Value;
 use std::env;
 
-// The UserActor struct
 pub struct UserActor {
     pub id: String,
     pub name: String,
