@@ -2,6 +2,7 @@ use crate::actors::manager::Manager;
 use crate::actors::message::{CreateActor, ForwardToActor, GetActorCount};
 use actix::Addr;
 use actix_web::{web, HttpResponse, Responder};
+use serde_json::json;
 
 pub async fn create_actor(
     manager: web::Data<Addr<Manager>>,
@@ -15,7 +16,10 @@ pub async fn create_actor(
         .unwrap_or_else(|_| Err("Failed to create actor".to_string()));
 
     match result {
-        Ok(_) => HttpResponse::Ok().json("Actor created successfully"),
+        Ok(actor_id) => HttpResponse::Ok().json(json!({
+            "message": "Actor created successfully",
+            "actor_id": actor_id
+        })),
         Err(err) => HttpResponse::BadRequest().json(err),
     }
 }

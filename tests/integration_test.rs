@@ -51,29 +51,38 @@ mod tests {
 
         let status = actor_response.status();
 
-        let response_body = actor_response.text().await?;
-        println!("Actor Response: {}", response_body);
+        let response_json: serde_json::Value = actor_response.json().await?;
+        print!("Created Actor: {}", response_json);
+        let actor_id = response_json["actor_id"]
+            .as_str()
+            .expect("Failed to get actor_id from response");
 
+        println!("Actor created with ID: {}", actor_id);
         assert!(
             status.is_success(),
             "Failed to create actor. Status: {}, Body: {}",
             status,
-            response_body
+            response_json
         );
 
-        // Test interacting with the actor
         let interact_response = client
             .post(&format!("{}/actors/interact", BASE_URL))
             .json(&json!({
                 "user_id": "user1",
+                "actor_id": actor_id,
                 "query": "What should I eat after a workout?"
             }))
             .send()
             .await?;
 
+        let status = interact_response.status();
+        let response_body = interact_response.text().await?;
+
         assert!(
-            interact_response.status().is_success(),
-            "Failed to interact with actor"
+            status.is_success(),
+            "Failed to interact with actor. Status: {}, Body: {}",
+            status,
+            response_body
         );
 
         println!("Route tests: PASSED");

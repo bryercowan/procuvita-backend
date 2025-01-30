@@ -1,5 +1,6 @@
 use actix::prelude::*;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Message, Serialize, Deserialize)]
 #[rtype(result = "Result<(), String>")]
@@ -9,7 +10,7 @@ pub struct InteractWithActor {
 }
 
 #[derive(Message, Serialize, Deserialize)]
-#[rtype(result = "Result<(), String>")]
+#[rtype(result = "Result<Uuid, String>")]
 pub struct CreateActor {
     pub user_id: String,
     pub name: String,

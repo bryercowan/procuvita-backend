@@ -5,6 +5,7 @@ use crate::actors::message::{
 use crate::actors::user_actor::UserActor;
 use actix::prelude::*;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 pub struct Manager {
     actors: HashMap<String, Addr<UserActor>>, // Map user_id to their UserActor
@@ -83,14 +84,18 @@ impl Handler<TrackTaskProgress> for Manager {
 }
 
 impl Handler<CreateActor> for Manager {
-    type Result = Result<(), String>;
+    type Result = Result<Uuid, String>;
 
     fn handle(&mut self, msg: CreateActor, _: &mut Context<Self>) -> Self::Result {
-        if self.actors.contains_key(&msg.user_id) {
-            return Err(format!("Actor for user {} already exists", msg.user_id));
+        let actor_id = Uuid::new_v4();
+        if self.actors.contains_key(&actor_id.to_string()) {
+            return Err(format!(
+                "Actor for user {} already exists with actor_id {}",
+                msg.user_id, actor_id
+            ));
         }
-
         let actor = UserActor::new(
+            actor_id,
             msg.user_id.clone(),
             msg.name,
             msg.personality,
@@ -101,8 +106,8 @@ impl Handler<CreateActor> for Manager {
         )
         .start();
 
-        self.actors.insert(msg.user_id.clone(), actor);
-        Ok(())
+        self.actors.insert(actor_id.to_string(), actor);
+        Ok(actor_id)
     }
 }
 
@@ -118,6 +123,7 @@ impl Handler<ForwardToActor> for Manager {
     type Result = ResponseFuture<Result<String, String>>;
 
     fn handle(&mut self, msg: ForwardToActor, _: &mut Context<Self>) -> Self::Result {
+        println!("Handle Forward To Actor");
         let user_id = msg.user_id.clone();
         let actor_id = msg.actor_id.clone();
         let query = msg.query;

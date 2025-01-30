@@ -3,9 +3,12 @@ use actix::prelude::*;
 use reqwest::Client;
 use serde_json::Value;
 use std::env;
+use uuid::Uuid;
 
+#[derive(Clone)]
 pub struct UserActor {
-    pub id: String,
+    pub id: Uuid,
+    pub user_id: String,
     pub name: String,
     pub personality: String, // Actor's tone (e.g., motivational, empathetic)
     pub picture_url: Option<String>,
@@ -16,7 +19,8 @@ pub struct UserActor {
 
 impl UserActor {
     pub fn new(
-        id: String,
+        id: Uuid,
+        user_id: String,
         name: String,
         personality: String,
         picture_url: Option<String>,
@@ -26,6 +30,7 @@ impl UserActor {
     ) -> Self {
         UserActor {
             id,
+            user_id,
             name,
             personality,
             picture_url,
@@ -35,7 +40,7 @@ impl UserActor {
         }
     }
 
-    async fn fetch_response_from_openai(&self, user_query: String) -> Result<String, String> {
+    pub async fn fetch_response_from_openai(&self, user_query: String) -> Result<String, String> {
         let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OpenAI API key not found")?;
         let client = Client::new();
         let endpoint = "https://api.openai.com/v1/completions";
@@ -94,7 +99,7 @@ impl UserActor {
         let embedding_data = serde_json::json!({
             "vectors": [
                 {
-                    "id": format!("chat-{}-{}", user_id, uuid::Uuid::new_v4()),
+                    "id": format!("chat-{}-{}", user_id, Uuid::new_v4()),
                     "values": self.generate_embedding(message).await?,
                     "metadata": {
                         "user_id": user_id,
@@ -130,27 +135,25 @@ impl UserActor {
     }
 }
 
-// Implement the Actor trait for UserActor
 impl Actor for UserActor {
     type Context = Context<Self>;
 }
 
-// Implement message handlers for UserActor
 impl Handler<InteractWithUser> for UserActor {
     type Result = ResponseFuture<Result<String, String>>;
 
     fn handle(&mut self, msg: InteractWithUser, _: &mut Context<Self>) -> Self::Result {
-        // Clone the necessary data to avoid borrowing `self` in the async block
+        println!("Handle InteractWithUser");
         let user_query = msg.query.clone();
-        let user_id = self.id.clone();
+        let user_id = self.user_id.clone();
         let actor_id = self.id.clone();
         let personality = self.personality.clone();
         let expertise = self.expertise.clone();
         let goals = self.goals.clone();
         let knowledge_base = self.knowledge_base.clone();
 
+        println!("what is poppin");
         Box::pin(async move {
-            // Create a new instance of UserActor's fetch_response_from_openai logic
             let full_prompt = format!(
                 "You are a {expertise} life coach with a {personality} personality. \
                 You are helping the user achieve the following goals: {goals}. \
@@ -165,11 +168,21 @@ impl Handler<InteractWithUser> for UserActor {
 
             let api_key = env::var("OPENAI_API_KEY").map_err(|_| "OpenAI API key not found")?;
             let client = Client::new();
-            let endpoint = "https://api.openai.com/v1/completions";
+            let endpoint = "https://api.openai.com/v1/chat/completions";
 
             let body = serde_json::json!({
-                "model": "text-davinci-003",
-                "prompt": full_prompt,
+                "model": "gpt-4o-2024-11-20",
+                "messages": [{
+                    "role": "system",
+                    "content": format!(
+                        "You are a {} life coach with a {} personality. You are helping the user achieve the following goals: {}. Use your knowledge base: {}.",
+                        expertise, personality, goals.join(", "), knowledge_base
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": user_query
+                }],
                 "max_tokens": 150,
                 "temperature": 0.7
             });
@@ -180,17 +193,26 @@ impl Handler<InteractWithUser> for UserActor {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| format!("Request failed: {}", e))?;
+                .map_err(|e| {
+                    println!("OpenAI request error: {:?}", e);
+                    format!("Request failed: {}", e)
+                })?;
+            println!("OpenAI Response Status: {:?}", response.status());
+            println!("OpenAI Response Headers: {:?}", response.headers());
+            println!("1");
 
-            let response_json: Value = response
-                .json()
-                .await
-                .map_err(|e| format!("Failed to parse response: {}", e))?;
+            let response_json: Value = response.json().await.map_err(|e| {
+                println!("OpenAI request error: {:?}", e);
+                format!("Request failed: {}", e)
+            })?;
+            println!("2");
+            println!("Full JSON response: {:?}", response_json);
 
-            let response_text: String = response_json["choices"][0]["text"]
+            let response_text: String = response_json["choices"][0]["message"]["content"]
                 .as_str()
                 .ok_or_else(|| String::from("No response text found"))?
                 .to_string();
+            println!("3");
 
             // Store chat in vector DB
             let embedding_data = serde_json::json!({
@@ -208,16 +230,25 @@ impl Handler<InteractWithUser> for UserActor {
                 ]
             });
 
-            let vector_response = client
-                .post("https://your-pinecone-index-url/vectors/upsert")
-                .header("Api-Key", env::var("PINECONE_API_KEY").unwrap())
-                .json(&embedding_data)
-                .send()
-                .await;
+            match env::var("PINECONE_API_KEY") {
+                Ok(pinecone_key) => {
+                    let vector_response = client
+                        .post("https://your-pinecone-index-url/vectors/upsert")
+                        .header("Api-Key", pinecone_key)
+                        .json(&embedding_data)
+                        .send()
+                        .await;
 
-            if vector_response.is_err() {
-                return Err("Failed to store chat in vector database".to_string());
+                    if let Err(e) = vector_response {
+                        println!("Warning: Failed to store chat in vector database: {}", e);
+                    }
+                }
+                Err(e) => {
+                    println!("Warning: Pinecone API key not found: {}", e);
+                }
             }
+
+            println!("{}", response_text);
 
             Ok(response_text)
         })
